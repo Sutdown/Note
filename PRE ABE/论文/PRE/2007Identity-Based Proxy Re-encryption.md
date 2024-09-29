@@ -1,0 +1,3 @@
+- **Ateniese, Giuseppe, et al. "Proxy re-encryption: Analysis of constructions and applications."** (2009)
+  - 论文链接：[Proxy Re-Encryption: Analysis of Constructions and Applications]()
+  - 这篇论文对不同的代理重加密方案进行了系统分析，对各种应用场景进行了详细讨论。
