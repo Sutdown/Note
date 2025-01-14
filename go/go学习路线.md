@@ -2,11 +2,11 @@
 
 ~~[go语言之旅 — 官方简单入门文档](https://tour.go-zh.org/methods/15)~~
 
-[go入门指南 — vedio]()
-
 [go语言圣经 — 书籍一观入门](https://golang-china.github.io/gopl-zh/index.html)
 
 阶段二：进阶
+
+[novel-fpg](https://github.com/black-currant/novel-fpg)
 
 [Go语言专项学习文档 — 百度内网](https://ku.baidu-int.com/knowledge/HFVrC7hq1Q/T8xkHDmQKW/RhYvysHyxU/D4cnPtEvvS6RUm)
 
