@@ -11,7 +11,7 @@
 [Go语言专项学习文档 — 百度内网](https://ku.baidu-int.com/knowledge/HFVrC7hq1Q/T8xkHDmQKW/RhYvysHyxU/D4cnPtEvvS6RUm)
 
 - [go语言IO和网络编程](http://learn.baidu.com/dulearn/app-dulearn-page.html#/home/course-detail/30314?isFromPc=1&reportLog=true)
-- [深入理解Golang](http://learn.baidu.com/pages/index.html?isFromPc=1&reportLog=true#/courseInfo/31000?courseId=31000)
+- ~~[深入理解Golang](http://learn.baidu.com/pages/index.html?isFromPc=1&reportLog=true#/courseInfo/31000?courseId=31000)~~
 - [Go并发编程实战](http://learn.baidu.com/pages/index.html?isFromPc=1&reportLog=true#/courseInfo/30079?courseId=30079)
 - [测试概述&GO实践](http://learn.baidu.com/pages/index.html?isFromPc=1&reportLog=true#/courseInfo/45822?courseId=45822)
 
