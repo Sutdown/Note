@@ -1,5 +1,13 @@
 ## go入门学习
 
+
+
+预计长久更新。这篇文章太泛了，知识点只适合于初步了解，会进一步加深的。
+
+2025.02.09 20:42 创建
+
+
+
 > 常见问题：
 >
 > - **go中select+channel（goroutine）的实现机制**
@@ -60,21 +68,298 @@ go的设计理念在于工程化，更好直接的提升项目的效率。因此
 1. 当元素数量小于或者等于 4 个时，会直接将数组中的元素放置在栈上；
 2. 当元素数量大于 4 个时，会将数组中的元素放置到静态区并在运行时取出；
 
+> slice和数组的联系和区别？
+>
+> slice 的底层数据是数组，slice 是对数组的封装。
+>
+> 数组是定长的，长度定义好之后，不能再更改。在 Go 中，数组是不常见的，因为其长度是类型的一部分，限制了它的表达能力，比如 `[3]int` 和 `[4]int` 就是不同的类型。而切片则非常灵活，它可以动态地扩容。切片的类型和长度无关。
+
+
+
+#### slice
+
+一个slice类型一般写作[]T，其中T代表slice中元素的类型；由三个部分构成：指针、长度和容量。
+
+```go
+// runtime/slice.go
+type slice struct {
+	array unsafe.Pointer // 元素指针
+	len   int // 长度 
+	cap   int // 容量
+}
+
+var s1 []int	 // nil切片
+var s2 = []int{} // empty切片 
+```
+
+> 为何slice不直接支持比较运算符呢？
+>
+> 这方面有两个原因。第一个原因，一个slice的元素是间接引用的，一个slice甚至可以包含自身（译注：当slice声明为[]interface{}时，slice的元素可以是自身）；第二个原因，因为slice的元素是间接引用的，一个固定的slice值（译注：指slice本身的值，不是元素的值）在不同的时刻可能包含不同的元素，因为底层数组的元素可能会被修改
+
+1. 创建slice
+
+2. 类型转换
+
+3. 打印语句
+
+4. 栈空间扩容
+
+   当原 slice 容量小于 `1024` 的时候，新 slice 容量变成原来的 `2` 倍；原 slice 容量超过 `1024`，新 slice 容量变成原来的`1.25`倍。后半部分还对 `newcap` 作了一个`内存对齐`，这个和内存分配策略相关。进行内存对齐之后，新 slice 的容量是要 `大于等于` 老 slice 容量的 `2倍`或者`1.25倍`。
+
+
+
+- 值的注意的是，当直接用切片作为函数参数时，可以改变切片的元素，不能改变切片本身；想要改变切片本身，可以将改变后的切片返回，函数调用者接收改变后的切片或者将切片指针作为函数参数。
+- 扩容策略并不是简单的扩为原切片容量的 `2` 倍或 `1.25` 倍，还有内存对齐的操作。扩容后的容量 >= 原容量的 `2` 倍或 `1.25` 倍
+- 多个切片可能共享同一个底层数组，这种情况下，对其中一个切片或者底层数组的更改，会影响到其他切片
+
+
+
+#### map
+
+最主要的数据结构有两种：`哈希查找表（Hash table）`、`搜索树（Search tree）`。Go 语言采用的是哈希查找表，并且使用链表解决哈希冲突。
+
+```go
+ageMp := make(map[string]int)
+// 指定 map 长度
+ageMp := make(map[string]int, 8)
+
+// ageMp 为 nil，不能向其添加元素，会直接panic
+var ageMp map[string]int
+```
+
+> makemap 和 makeslice 的区别，带来一个不同点：当 map 和 slice 作为函数参数时，在函数参数内部对 map 的操作会影响 map 自身；而对 slice 却不会（之前讲 slice 的文章里有讲过）。
+>
+> 主要原因：一个是指针（`*hmap`），一个是结构体（`slice`）。Go 语言中的函数传参都是值传递，在函数内部，参数会被 copy 到本地。`*hmap`指针 copy 完之后，仍然指向同一个 map，因此函数内部对 map 的操作会影响实参。而 slice 被 copy 后，会成为一个新的 slice，对它进行的操作不会影响到实参。
+
+##### hash
+
+map 的一个关键点在于，哈希函数的选择。在程序启动时，会检测 cpu 是否支持 aes，如果支持，则使用 aes hash，否则使用 memhash。
+
+hash 函数，有加密型和非加密型。加密型的一般用于加密数据、数字摘要等，典型代表就是 md5、sha1、sha256、aes256 这种；非加密型的一般就是查找。在 map 的应用场景中，用的是查找。选择 hash 函数主要考察的是两点：性能、碰撞概率。
+
+##### get
+
+Go 语言采用一个 bucket 里装载 8 个 key，定位到某个 bucket 后，还需要再定位到具体的 key，这实际上又用了时间换空间。当然，这样做，要有一个度，不然所有的 key 都落在了同一个 bucket 里，直接退化成了链表，各种操作的效率直接降为 O(n)，是不行的。
+
+装载因子：$loadFactor := count / (2^B)$
+
+**触发扩容的条件**
+
+1. 装载因子超过阈值，源码里定义的阈值是 6.5。
+
+2. overflow 的 bucket 数量过多：当 B 小于 15，也就是 bucket 总数$ 2^B $小于 2^15 时，如果 overflow 的 bucket 数量超过$ 2^B$；当 B >= 15，也就是 bucket 总数$ 2^B$ 大于等于 2^15，如果 overflow 的 bucket 数量超过 2^15。
+
+   对于条件 1，元素太多，而 bucket 数量太少，很简单：将 B 加 1，bucket 最大数量（2^B）直接变成原来 bucket 数量的 2 倍。于是，就有新老 bucket 了。注意，这时候元素都在老 bucket 里，还没迁移到新的 bucket 来。而且，新 bucket 只是最大数量变为原来最大数量（2^B）的 2 倍（2^B * 2）。
+
+   对于条件 2，其实元素没那么多，但是 overflow bucket 数特别多，说明很多 bucket 都没装满。解决办法就是开辟一个新 bucket 空间，将老 bucket 中的元素移动到新 bucket，使得同一个 bucket 中的 key 排列地更紧密。这样，原来，在 overflow bucket 中的 key 可以移动到 bucket 中来。结果是节省空间，提高 bucket 利用率，map 的查找和插入效率自然就会提升。
+
+```go
+// src/runtime/hashmap_fast.go
+
+func main() {
+	ageMap := make(map[string]int)
+	ageMap["qcrao"] = 18
+
+    // 不带 comma 用法
+	age1 := ageMap["stefno"]
+	fmt.Println(age1)
+
+    // 带 comma 用法
+	age2, ok := ageMap["stefno"]
+	fmt.Println(age2, ok)
+}
+
+/* 运行结果
+   0
+   0 false
+*/
+
+// 底层函数
+// src/runtime/hashmap.go
+func mapaccess1(t *maptype, h *hmap, key unsafe.Pointer) unsafe.Pointer
+func mapaccess2(t *maptype, h *hmap, key unsafe.Pointer) (unsafe.Pointer, bool)
+```
+
+
+
+#### defer+panic+recover
+
+> c++：RALL
+
+`defer`是Go语言提供的一种用于注册延迟调用的机制：让函数或语句可以在当前函数执行完毕后（包括通过return正常结束或者panic导致的异常结束）执行。
+
+##### 底层原理
+
+*每次defer语句执行的时候，会把函数“压栈”，函数参数会被拷贝下来；当外层函数（非代码块，如一个for循环）退出时，defer函数按照定义的逆序执行；如果defer执行的函数为nil, 那么会在最终调用函数的产生panic.*
+
+defer后面的语句在执行的时候，函数调用的参数会被保存起来，也就是复制了一份。真正执行的时候，实际上用到的是这个复制的变量，因此如果此变量是一个“值”，那么就和定义的时候是一致的。如果此变量是一个“引用”，那么就可能和定义的时候不一致。
+
+**有关return**
+
+```go
+return xxx
+
+/*
+1. 返回值 = xxx
+2. 调用defer函数
+3. 空的return
+*/
+```
+
+##### 闭包是什么
+
+> 闭包=函数+引用环境
+
+##### defer+recover
+
+panic会停掉当前正在执行的程序，不只是当前协程。在这之前，它会有序地执行完当前协程defer列表里的语句，其它协程里挂的defer语句不作保证。因此，我们经常在defer里挂一个recover语句，防止程序直接挂掉，这起到了`try...catch`的效果。
+
 
 
 ### 3 方法
+
+方法本质上是一种函数，但它们具有一个特定的接收者（receiver），也就是方法所附加到的类型。这个接收者可以是指针类型或值类型。方法与函数的区别是，函数不属于任何类型，方法属于特定的类型。
+
+```go
+// func receiver 方法名 参数列表 返回值列表
+func (t *T/T) MethodName(参数列表) (返回值列表) {
+    // 方法体
+}
+```
 
 
 
 ### 4 接口
 
+> 接口是一组方法的集合
+
+Go语言中的接口（interface）是一组方法签名的集合，是一种抽象类型。接口定义了方法，但没有实现，而是由具体的类型（struct）实现这些方法，因此接口是一种实现多态的机制。
+
+```go
+type 接口名 interface {
+    方法名1(参数1 类型1, 参数2 类型2) 返回值类型1
+    方法名2(参数3 类型3) 返回值类型2
+    ...
+}
+```
+
+Go 语言中，每个变量都有一个静态类型，在编译阶段就确定了的，比如 `int, float64, []int` 等等。注意，这个类型是声明时候的类型，不是底层数据类型。
+
+反射主要与 interface{} 类型相关。
+
+##### 反射三大定律
+
+> 1. 反射将接口变量转换成反射对象 Type 和 Value；
+> 2. 反射可以通过反射对象 Value 还原成原先的接口变量；
+> 3. 反射可以用来修改一个变量的值，前提是这个值可以被修改。
+
+- 第一条：反射是一种检测存储在 `interface` 中的类型和值机制。这可以通过 `TypeOf` 函数和 `ValueOf` 函数得到。
+
+- 第二条：它将 `ValueOf` 的返回值通过 `Interface()` 函数反向转变成 `interface` 变量。
+
+  前两条就是说 `接口型变量` 和 `反射类型对象` 可以相互转化，反射类型对象实际上就是指的前面说的 `reflect.Type` 和 `reflect.Value`。
+
+- 第三条：如果需要操作一个反射变量，那么它必须是可设置的。反射变量可设置的本质是它存储了原变量本身，这样对反射变量的操作，就会反映到原变量本身；反之，如果反射变量不能代表原变量，那么操作了反射变量，不会对原变量产生任何影响，这会给使用者带来疑惑。所以第二种情况在语言层面是不被允许的。
 
 
-### 5 协程（GPM调度和CSP模型）
+
+### 5 GPM调度
+
+`Golang` 的协程本质上其实就是对 IO 事件的封装，并且通过语言级的支持让异步的代码看上去像同步执行的一样。
+
+#### GMP
+
+[Go面试必问——GMP调度模型详解_golang面试 gmp-CSDN博客](https://blog.csdn.net/xmcy001122/article/details/119392934)
+
+- G：**Goroutine 的缩写**，每次 go func() 都代表一个 G，无限制，但受内存影响。使用 struct runtime.g，包含了当前 goroutine 的状态、堆栈、上下文
+- M：**工作线程(OS thread)也被称为 Machine**，使用 struct runtime.m，所有 M 是有线程栈的。M 的默认数量限制是 10000（来源），可以通过debug.SetMaxThreads修改。
+
+**GM模型的缺点**
+
+- `单一全局互斥锁(Sched.Lock)和集中状态存储`。导致所有 goroutine 相关操作，比如：创建、结束、重新调度等都要上锁。
+- `Goroutine 传递问题`。M 经常在 M 之间传递”可运行”的 goroutine，这导致调度延迟增大以及额外的性能损耗（刚创建的 G 放到了全局队列，而不是本地 M 执行，不必要的开销和延迟）
+- `Per-M 持有内存缓存 (M.mcache)`。每个 M 持有 mcache 和 stack alloc，然而只有在 M 运行 Go 代码时才需要使用的内存(每个 mcache 可以高达2mb)，当 M 在处于 syscall 时并不需要。运行 Go 代码和阻塞在 syscall 的 M 的比例高达1:100，造成了很大的浪费。同时内存亲缘性也较差。G 当前在 M运 行后对 M 的内存进行了预热，因为现在 G 调度到同一个 M 的概率不高，数据局部性不好。
+- `严重的线程阻塞/解锁`。在系统调用的情况下，工作线程经常被阻塞和取消阻塞，这增加了很多开销。比如 M 找不到G，此时 M 就会进入频繁阻塞/唤醒来进行检查的逻辑，以便及时发现新的 G 来执行。
+
+**GMP模型**
+
+[再见 Go 面试官：GMP 模型，为什么要有 P？-CSDN博客](https://blog.csdn.net/EDDYCJY/article/details/115191702)
+
+- P：Processor，是一个抽象的概念，并不是真正的物理 CPU，P 表示执行 Go 代码所需的资源，可以通过 GOMAXPROCS 进行修改。`当 M 执行 Go 代码时，会先关联 P`。当 M 空闲或者处在系统调用时，就需要 P。且在 Go1.5 之后GOMAXPROCS 被默认设置可用的核数，而之前则默认为1。
+
+**好处**
+
+- 每个 P 有自己的本地队列，大幅度的减轻了对全局队列的直接依赖，所带来的效果就是锁竞争的减少。而 GM 模型的性能开销大头就是锁竞争。
+
+- 每个 P 相对的平衡上，在 GMP 模型中也实现了 Work Stealing 算法，如果 P 的本地队列为空，则会从全局队列或其他 P 的本地队列中窃取可运行的 G 来运行，减少空转，提高了资源利用率。
+
+**设计策略**
+
+1）work stealing 机制
+
+ 当本线程无可运行的 G 时，尝试从其他线程绑定的 P 偷取 G，而不是销毁线程。
+
+2）hand off 机制
+
+当本线程因为 G 进行系统调用阻塞时，线程释放绑定的 P，把 P 转移给其他空闲的线程执行。
+
+- 利用并行：GOMAXPROCS 设置 P 的数量，最多有 GOMAXPROCS 个线程分布在多个 CPU 上同时运行。GOMAXPROCS 也限制了并发的程度，比如 GOMAXPROCS = 核数/2，则最多利用了一半的 CPU 核进行并行。
+- 抢占：在 coroutine 中要等待一个协程主动让出 CPU 才执行下一个协程，在 Go 中，一个 goroutine 最多占用 CPU 10ms，防止其他 goroutine 被饿死，这就是 goroutine 不同于 coroutine 的一个地方。
+
+全局 G 队列：在新的调度器中依然有全局 G 队列，但功能已经被弱化了，当 M 执行 work stealing 从其他 P 偷不到 G 时，它可以从全局 G 队列获取 G。
 
 
 
-### 6 并发
+### 6 CSP模型
+
+[Channel · Go语言中文文档](https://www.topgoer.com/并发编程/channel.html)
+
+> Go语言的并发模型是CSP（Communicating Sequential Processes），提倡通过通信共享内存而不是通过共享内存而实现通信。
+
+Go 语言中的通道（channel）是一种特殊的类型。通道像一个传送带或者队列，总是遵循先入先出（First In First Out）的规则，保证收发数据的顺序。每一个通道都是一个具体类型的导管，也就是声明channel的时候需要为其指定元素类型。
+
+```go
+// var 变量 chan 元素类型
+// 声明通道类型
+	var ch1 chan int   // 声明一个传递整型的通道
+    var ch2 chan bool  // 声明一个传递布尔型的通道
+    var ch3 chan []int // 声明一个传递int切片的通道
+
+// 声明的通道后需要使用make函数初始化之后才能使用。
+// make(chan 元素类型, [缓冲大小])
+// 创建channel
+ch4 := make(chan int)
+ch5 := make(chan bool)
+ch6 := make(chan []int)
+```
+
+通道有发送（send）、接收(receive）和关闭（close）三种操作。
+
+关于关闭通道需要注意的事情是，只有在通知接收方goroutine所有的数据都发送完毕的时候才需要关闭通道。通道是可以被垃圾回收机制回收的，它和关闭文件是不一样的，在结束操作之后关闭文件是必须要做的，但关闭通道不是必须的。
+
+```go
+ch := make(chan int)
+ch <- 10 // 把10发送到ch中
+
+x := <- ch // 从ch中接收值并赋值给变量x
+<-ch       // 从ch中接收值，忽略结果
+
+close(ch) // 关闭
+/*
+    1.对一个关闭的通道再发送值就会导致panic。
+    2.对一个关闭的通道进行接收会一直获取值直到通道为空。
+    3.对一个关闭的并且没有值的通道执行接收操作会得到对应类型的零值。
+    4.关闭一个已经关闭的通道会导致panic。
+*/
+
+```
+
+一种方法是启用一个goroutine去接收值。**无缓冲的通道**只有在有人接收值的时候才能发送值。无缓冲通道上的发送操作会阻塞，直到另一个goroutine在该通道上执行接收操作，这时值才能发送成功，两个goroutine将继续执行。相反，如果接收操作先执行，接收方的goroutine将阻塞，直到另一个goroutine在该通道上发送一个值。
+使用无缓冲通道进行通信将导致发送和接收的goroutine同步化。因此，无缓冲通道也被称为同步通道。
+
+解决上面问题的方法还有一种就是使用**有缓冲区的通道**。只要通道的容量大于零，那么该通道就是有缓冲的通道，通道的容量表示通道中能存放元素的数量。
+
+双向改单向通道（待办）
 
 
 
@@ -174,6 +459,8 @@ Go1.8 采用混合写屏障技术消除栈重新扫描的时间
 
 ### 9 反射
 
+> Go语言提供了一种机制，能够在运行时更新变量和检查它们的值、调用它们的方法和它们支持的内在操作，而不需要在编译时就知道这些变量的具体类型。这种机制被称为反射。
+
 
 
 ### 参考书籍
@@ -181,4 +468,17 @@ Go1.8 采用混合写屏障技术消除栈重新扫描的时间
 1. 《go底层原理剖析》（内容讲解比较通俗）
 2. [go语言圣经](https://golang-china.github.io/gopl-zh/index.html)（经典书籍，存在一定难度）
 3. [go语言之旅](https://tour.go-zh.org/welcome/1)（有代码讲解，最为简单，适合初步学习）
-4. [语言环境 | Go 语言设计哲学](https://golang3.eddycjy.com/posts/go-env/)（可浏览，很有意思）
+4. [Go 语言设计哲学](https://golang3.eddycjy.com/posts/go-env/)（可浏览，很有意思）
+5. [Go 程序员面试笔试宝典](https://golang.design/go-questions/interface/duck-typing/)
+6. [Go语言中文文档](https://www.topgoer.com/并发编程/channel.html)
+
+
+
+### 参考链接
+
+1. [深度解密Go语言之map - Stefno - 博客园](https://www.cnblogs.com/qcrao-2018/p/10903807.html)
+2. [深度解密Go语言之Slice - Stefno - 博客园](https://www.cnblogs.com/qcrao-2018/p/10631989.html)
+3. [Golang之轻松化解defer的温柔陷阱 - Stefno - 博客园](https://www.cnblogs.com/qcrao-2018/p/10367346.html)
+4. [为什么go和rust语言都舍弃了继承？ - 知乎](https://www.zhihu.com/question/511958588)
+5. [理解Go协程调度的本质 - 知乎](https://zhuanlan.zhihu.com/p/8898558120)
+6. [深入分析Go1.18 GMP调度器底层原理 - 知乎](https://zhuanlan.zhihu.com/p/586236582)
