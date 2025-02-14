@@ -250,6 +250,45 @@ func getLogWriter() zapcore.WriteSyncer {
 
 [优雅地关机或重启 | 李文周的博客](https://www.liwenzhou.com/posts/Go/graceful-shutdown/)
 
+**优雅的关机**指服务端关机命令发出后不是立即关机，而是等待当前还在处理的请求全部处理之后再退出程序。
+
+```go
+// 等待中断信号来优雅地关闭服务器，为关闭服务器操作设置一个5秒的超时
+	quit := make(chan os.Signal, 1) // 创建一个接收信号的通道
+	// kill 默认会发送 syscall.SIGTERM 信号
+	// kill -2 发送 syscall.SIGINT 信号，我们常用的Ctrl+C就是触发系统SIGINT信号
+	// kill -9 发送 syscall.SIGKILL 信号，但是不能被捕获，所以不需要添加它
+	// signal.Notify把收到的 syscall.SIGINT或syscall.SIGTERM 信号转发给quit
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)  // 此处不会阻塞
+	<-quit  // 阻塞在此，当接收到上述两种信号时才会往下执行
+	log.Println("Shutdown Server ...")
+	// 创建一个5秒超时的context
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	// 5秒内优雅关闭服务（将未处理完的请求处理完再关闭服务），超过5秒就超时退出
+	if err := srv.Shutdown(ctx); err != nil {
+		log.Fatal("Server Shutdown: ", err)
+	}
+```
+
+
+
+**优雅的重启**
+
+用 [fvbock/endless](https://github.com/fvbock/endless) 来替换默认的 `ListenAndServe`启动服务来实现，`endless` 是通过`fork`子进程处理新请求，待原进程处理完当前请求后再退出的方式实现优雅重启的。所以当你的项目是使用类似`supervisor`的软件管理进程时就**不适用**这种方式了。
+
+```go
+  // 默认endless服务器会监听下列信号：
+	// syscall.SIGHUP，syscall.SIGUSR1，syscall.SIGUSR2，syscall.SIGINT，syscall.SIGTERM和syscall.SIGTSTP
+	// 接收到 SIGHUP 信号将触发`fork/restart` 实现优雅重启（kill -1 pid会发送SIGHUP信号）
+	// 接收到 syscall.SIGINT或syscall.SIGTERM 信号将触发优雅关机
+	// 接收到 SIGUSR2 信号将触发HammerTime
+	// SIGUSR1 和 SIGTSTP 被用来触发一些用户自定义的hook函数
+	if err := endless.ListenAndServe(":8080", router); err!=nil{
+		log.Fatalf("listen: %s\n", err)
+	}
+```
+
 
 
 ### MVC模式
